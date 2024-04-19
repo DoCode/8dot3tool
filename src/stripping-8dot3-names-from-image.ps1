@@ -6,6 +6,12 @@ param(
     [string[]] $IsoImages,
 
     [Parameter()]
+    [string] $WorkingRootPath = $PSScriptRoot,
+
+    [Parameter()]
+    [string] $MountRootPath = (Join-Path $WorkingRootPath 'm'),
+
+    [Parameter()]
     [switch] $WhatIf,
 
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -219,12 +225,11 @@ try {
     $7zipCommand = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
     $DismCommand = Join-Path $env:windir 'System32\Dism.exe'
     $OscdImgCommand = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe'
-    $MountRootPath = 'D:\t\m'
 
     foreach ($isoImage in $IsoImages) {
         $destinationDir = Get-Key
         $isoImagePath = Resolve-Path $isoImage
-        $destinationPath = Join-Path $PSScriptRoot $destinationDir
+        $destinationPath = Join-Path $WorkingRootPath $destinationDir
 
         Log info "Create destination directory -> '$destinationPath'"
         if (-not $WhatIf) {

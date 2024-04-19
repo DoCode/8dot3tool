@@ -43,10 +43,10 @@ function Expand-IsoImage([string] $isoImagePath, [string] $destinationPath) {
     }
 }
 
-function Convert-ImageEsdToWim([string] $esdFilePath) {
-    $logLevel = @{ LogLevel = 'Errors' }
+function Convert-ImageEsdToWim([string] $esdFilePath, [string] $wimFilePath) {
+    Log trace "Convert-ImageEsdToWim esdFilePath: $esdFilePath, wimFilePath: $wimFilePath"
 
-    $wimFilePath = Join-Path (Split-Path $esdFilePath -Parent) "$(Split-Path $esdFilePath -LeafBase).wim"
+    $logLevel = @{ LogLevel = 'Errors' }
 
     foreach ($image in Get-WindowsImage -ImagePath $esdFilePath @logLevel) {
         Log info "Convert edition '$($image.ImageName)' -> '$wimFilePath'"
@@ -54,14 +54,12 @@ function Convert-ImageEsdToWim([string] $esdFilePath) {
             Export-WindowsImage -SourceImagePath $esdFilePath -SourceIndex $image.ImageIndex -DestinationImagePath $wimFilePath -DestinationName $image.ImageName -CheckIntegrity -CompressionType max
         }
     }
-
-    return $wimFilePath
 }
 
-function Convert-ImageWimToEsd([string] $wimFilePath) {
-    $logLevel = @{ LogLevel = 'Errors' }
+function Convert-ImageWimToEsd([string] $wimFilePath, [string] $esdFilePath) {
+    Log trace "Convert-ImageWimToEsd wimFilePath: $wimFilePath, esdFilePath: $esdFilePath"
 
-    $esdFilePath = Join-Path (Split-Path $wimFilePath -Parent) "$(Split-Path $wimFilePath -LeafBase).esd"
+    $logLevel = @{ LogLevel = 'Errors' }
 
     foreach ($image in Get-WindowsImage -ImagePath $wimFilePath @logLevel) {
         Log info "Convert edition '$($image.ImageName)' -> '$esdFilePath'"
@@ -81,11 +79,11 @@ function Convert-ImageWimToEsd([string] $wimFilePath) {
             & $DismCommand @dismArgs
         }
     }
-
-    return $esdFilePath
 }
 
 function Invoke-Strip8Dot3Name([string] $wimFilePath, [string] $destinationDir) {
+    Log trace "Invoke-Strip8Dot3Name wimFilePath: $wimFilePath, destinationDir: $destinationDir"
+
     $logLevel = @{ LogLevel = 'Errors' }
 
     foreach ($image in Get-WindowsImage -ImagePath $wimFilePath @logLevel) {
@@ -246,7 +244,7 @@ try {
         if ($isEsdImage) {
             # Windows 10/11
             Log info 'Execute Windows image'
-            $wimImage = Convert-ImageEsdToWim $esdImage
+            Convert-ImageEsdToWim -esdFilePath $esdImage -wimFilePath $wimImage
 
             Log info "Remove old image '$esdImage'"
             if (-not $WhatIf) {
@@ -260,7 +258,7 @@ try {
         Invoke-Strip8Dot3Name -wimFilePath $wimImage -destinationDir $destinationDir
 
         if ($isEsdImage) {
-            $esdImage = Convert-ImageWimToEsd $wimImage
+            $esdImage = Convert-ImageWimToEsd -wimFilePath $wimImage -esdFilePath $esdImage
 
             Log info "Remove old image '$wimImage'"
             if (-not $WhatIf) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)]
     [string[]] $IsoImages,
@@ -11,9 +11,6 @@ param(
     [Parameter()]
     [string] $MountRootPath = (Join-Path $WorkingRootPath 'm'),
 
-    [Parameter()]
-    [switch] $WhatIf,
-
     [Parameter(ValueFromRemainingArguments = $true)]
     $Vars
 )
@@ -23,12 +20,12 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # Import modules
-try { Import-Module SmartLogging } catch { Install-Module SmartLogging -Scope CurrentUser -Force; Import-Module SmartLogging }
-try { Import-Module Execution } catch { Install-Module Execution -Scope CurrentUser -Force; Import-Module Execution }
+if (-not (Get-Module -Name SmartLogging -ListAvailable)) { Install-Module SmartLogging -Scope CurrentUser -Force }
+if (-not (Get-Module -Name Execution -ListAvailable)) { Install-Module Execution -Scope CurrentUser -Force }
 
-Set-ScriptArgs $MyInvocation.BoundParameters $MyInvocation.UnboundArguments
+$PSScriptID = Set-PSScriptID
 
-Invoke-SelfElevation
+Restart-SelfElevated -PSScriptID $PSScriptID
 
 function Get-Key() {
     return -join (1..6 | % { ((48..57) + (65..90) + (97..122) | % { [char]$_ }) + (0..9) | Get-Random })
@@ -36,7 +33,7 @@ function Get-Key() {
 
 function Expand-IsoImage([string] $isoImagePath, [string] $destinationPath) {
     Log info "Expand image '$isoImagePath' -> '$destinationPath'"
-    if (-not $WhatIf) {
+    if (-not $WhatIfPreference) {
         # Start-NativeExecution 'C:\Program Files\7-Zip\7z.exe' x -o$destinationPath $isoImagePath
         # Start-Process -FilePath $7zipCommand -ArgumentList @('x', "-o$destinationPath", $isoImagePath) -NoNewWindow -Wait
         & $7zipCommand x "-o$($destinationPath)" $isoImagePath
@@ -50,9 +47,24 @@ function Convert-ImageEsdToWim([string] $esdFilePath, [string] $wimFilePath) {
 
     foreach ($image in Get-WindowsImage -ImagePath $esdFilePath @logLevel) {
         Log info "Convert edition '$($image.ImageName)' -> '$wimFilePath'"
-        if (-not $WhatIf) {
+        if (-not $WhatIfPreference) {
             Export-WindowsImage -SourceImagePath $esdFilePath -SourceIndex $image.ImageIndex -DestinationImagePath $wimFilePath -DestinationName $image.ImageName -CheckIntegrity -CompressionType max
         }
+
+        # $dismArgs = @(
+        #     '/export-image',
+        #     "/sourceimagefile:$esdFilePath",
+        #     "/sourceindex:$($image.ImageIndex)",
+        #     "/destinationimagefile:$wimFilePath",
+        #     "/destinationname:$($image.ImageName)",
+        #     '/compress:max',
+        #     '/checkintegrity'
+        # )
+
+        # Log trace "dismArgs: $dismArgs"
+        # if (-not $WhatIfPreference) {
+        #     & $DismCommand @dismArgs
+        # }
     }
 }
 
@@ -69,13 +81,13 @@ function Convert-ImageWimToEsd([string] $wimFilePath, [string] $esdFilePath) {
             "/sourceimagefile:$wimFilePath",
             "/sourceindex:$($image.ImageIndex)",
             "/destinationimagefile:$esdFilePath",
-            "/destinationname:'$($image.ImageName)'",
+            "/destinationname:$($image.ImageName)",
             '/compress:recovery',
             '/checkintegrity'
         )
 
         Log trace "dismArgs: $dismArgs"
-        if (-not $WhatIf) {
+        if (-not $WhatIfPreference) {
             & $DismCommand @dismArgs
         }
     }
@@ -93,17 +105,17 @@ function Invoke-Strip8Dot3Name([string] $wimFilePath, [string] $destinationDir) 
             $mountPath = Join-Path $MountRootPath $destinationDir $imageKey
 
             Log info "Create mount directory -> '$mountPath'"
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 New-Item -Path $mountPath -ItemType Directory -Force > $null
             }
 
             Log info "Mount edition '$($image.ImageName)' -> mounted at '$mountPath'"
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 Mount-WindowsImage -Path $mountPath -ImagePath $wimFilePath -Name $image.ImageName @logLevel > $null
             }
 
             Log info 'Load registry hives'
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 & "$env:windir\system32\reg.exe" load "HKLM\mnt-$imageKey-components" (Join-Path $mountPath 'Windows\System32\config\COMPONENTS')
                 & "$env:windir\system32\reg.exe" load "HKLM\mnt-$imageKey-default" (Join-Path $mountPath 'Windows\System32\config\DEFAULT')
                 & "$env:windir\system32\reg.exe" load "HKLM\mnt-$imageKey-drivers" (Join-Path $mountPath 'Windows\System32\config\DRIVERS')
@@ -113,22 +125,22 @@ function Invoke-Strip8Dot3Name([string] $wimFilePath, [string] $destinationDir) 
             }
 
             Log info 'Stripping 8dot3 names in mounted registry and mounted directory'
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 & "$env:windir\system32\fsutil.exe" 8dot3name strip /f /l nul /s $mountPath
             }
 
             Log info 'Enable Long Paths in mounted registry'
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 New-ItemProperty -Path "Registry::HKLM\mnt-$imageKey-system\ControlSet001\Control\FileSystem" -Name 'LongPathsEnabled' -PropertyType DWord -Value 1 -Force > $null
             }
 
             Log info 'Disable 8dot3 names in mounted registry'
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 New-ItemProperty -Path "Registry::HKLM\mnt-$imageKey-system\ControlSet001\Control\FileSystem" -Name 'NtfsDisable8dot3NameCreation' -PropertyType DWord -Value 1 -Force > $null
             }
 
             Log info 'Unload registry hives'
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 & "$env:windir\system32\reg.exe" unload "HKLM\mnt-$imageKey-components"
                 & "$env:windir\system32\reg.exe" unload "HKLM\mnt-$imageKey-default"
                 & "$env:windir\system32\reg.exe" unload "HKLM\mnt-$imageKey-drivers"
@@ -138,12 +150,12 @@ function Invoke-Strip8Dot3Name([string] $wimFilePath, [string] $destinationDir) 
             }
 
             Log info "Dismount edition '$($image.ImageName)' -> mounted at '$mountPath'"
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 Dismount-WindowsImage -Path $mountPath -Save @logLevel > $null
             }
 
             Log info "Remove mount directory -> '$mountPath'"
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 Remove-Item $mountPath -Recurse -Force > $null
             }
         } catch {
@@ -156,7 +168,7 @@ function Invoke-Strip8Dot3Name([string] $wimFilePath, [string] $destinationDir) 
             Log warn 'Start Cleanup...'
 
             Log warn 'Unload registry hives'
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 & "$env:windir\system32\reg.exe" unload "HKLM\mnt-$imageKey-components"
                 & "$env:windir\system32\reg.exe" unload "HKLM\mnt-$imageKey-default"
                 & "$env:windir\system32\reg.exe" unload "HKLM\mnt-$imageKey-drivers"
@@ -166,12 +178,12 @@ function Invoke-Strip8Dot3Name([string] $wimFilePath, [string] $destinationDir) 
             }
 
             Log info "Dismount edition '$($image.ImageName)' -> mounted at '$mountPath'"
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 Dismount-WindowsImage -Path $mountPath -Discard @logLevel > $null
             }
 
             Log info "Remove mount directory -> '$mountPath'"
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 Remove-Item $mountPath -Recurse -Force > $null
             }
 
@@ -195,7 +207,7 @@ function New-ImageIso([string] $destinationPath, [string] $isoDestinationFile, [
     )
 
     Log trace "oscdImgArgs: $oscdImgArgs"
-    if (-not $WhatIf) {
+    if (-not $WhatIfPreference) {
         & $OscdImgCommand @oscdImgArgs
     }
 }
@@ -230,7 +242,7 @@ try {
         $destinationPath = Join-Path $WorkingRootPath $destinationDir
 
         Log info "Create destination directory -> '$destinationPath'"
-        if (-not $WhatIf) {
+        if (-not $WhatIfPreference) {
             New-Item -Path $destinationPath -ItemType Directory -Force > $null
         }
 
@@ -247,7 +259,7 @@ try {
             Convert-ImageEsdToWim -esdFilePath $esdImage -wimFilePath $wimImage
 
             Log info "Remove old image '$esdImage'"
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 Remove-Item $esdImage -Force > $null
             }
         } else {
@@ -261,7 +273,7 @@ try {
             $esdImage = Convert-ImageWimToEsd -wimFilePath $wimImage -esdFilePath $esdImage
 
             Log info "Remove old image '$wimImage'"
-            if (-not $WhatIf) {
+            if (-not $WhatIfPreference) {
                 Remove-Item $wimImage -Force > $null
             }
         }
@@ -272,7 +284,7 @@ try {
         New-ImageIso -destinationPath $destinationPath -isoDestinationFile $isoDestinationFile -isoLabel $isoLabel
 
         Log info "Remove destination directory -> '$destinationPath'"
-        if (-not $WhatIf) {
+        if (-not $WhatIfPreference) {
             Remove-Item $destinationPath -Recurse -Force > $null
         }
     }
@@ -289,10 +301,10 @@ try {
 
     if (Test-Path $MountRootPath) {
         Log info "Remove mount root directory -> '$MountRootPath'"
-        if (-not $WhatIf) {
+        if (-not $WhatIfPreference) {
             Remove-Item $MountRootPath -Recurse -Force > $null
         }
     }
 }
 
-Exit-WithAndWaitOnExplorer $ExitCode
+Exit-AndWaitOnUI -ExitCode $ExitCode -PSScriptID $PSScriptID

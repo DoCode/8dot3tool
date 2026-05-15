@@ -48,7 +48,7 @@ function Convert-ImageEsdToWim([string] $esdFilePath, [string] $wimFilePath) {
     foreach ($image in Get-WindowsImage -ImagePath $esdFilePath @logLevel) {
         Log info "Convert edition '$($image.ImageName)' -> '$wimFilePath'"
         if (-not $WhatIfPreference) {
-            Export-WindowsImage -SourceImagePath $esdFilePath -SourceIndex $image.ImageIndex -DestinationImagePath $wimFilePath -DestinationName $image.ImageName -CheckIntegrity -CompressionType max
+            Export-WindowsImage -SourceImagePath $esdFilePath -SourceIndex $image.ImageIndex -DestinationImagePath $wimFilePath -DestinationName $image.ImageName -CompressionType Fast
         }
 
         # $dismArgs = @(
